@@ -26,8 +26,8 @@ if __name__ == "__main__":
     print("\nLoading graph in " + graph_filename + " ...") 
     graph = sn.Graph()
     graph.load_json(graph_filename)
-    viz_filename = graph_filename[:-5] + ".viz.json"
-    print("\nCreating visual graph in " + viz_filename + " ...")
+    asn_filename = graph_filename[:-5] + ".asn.json"
+    print("\nCreating ASN graph in " + viz_filename + " ...")
 
     print(". Removing all nodes except ASNs ...")
     for id in graph.get_nodes():
@@ -56,6 +56,6 @@ if __name__ == "__main__":
         
     print("  . " + str(bidirectional) + " bidirectional edge(s) found.")
         
-    print(". Saving file in " + viz_filename + " ...")
-    graph.save_json(viz_filename)
+    print(". Saving file in " + asn_filename + " ...")
+    graph.save_json(asn_filename)
     print(str(len(graph.get_nodes())) + " nodes, " + str(len(graph.get_edges())) + " edges.")
