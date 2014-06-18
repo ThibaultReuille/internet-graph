@@ -88,11 +88,12 @@ if __name__ == "__main__":
     print(str(len(as_graph.get_nodes())) + " nodes, " + str(len(as_graph.get_edges())) + " edges.")
     igraph = as_graph
 
+    '''
     core_graph_filename = igraph_filename[:-5] + ".core.json"
     core_graph = extract_core_graph(as_graph)
     print(". Saving result in " + core_graph_filename + " ...")    
     core_graph.save_json(core_graph_filename)
     print(str(len(core_graph.get_nodes())) + " nodes, " + str(len(core_graph.get_edges())) + " edges.")
     igraph = core_graph
-
+    '''
 
