@@ -27,7 +27,7 @@ if __name__ == "__main__":
     graph = sn.Graph()
     graph.load_json(graph_filename)
     asn_filename = graph_filename[:-5] + ".asn.json"
-    print("\nCreating ASN graph in " + viz_filename + " ...")
+    print("\nCreating ASN graph in " + asn_filename + " ...")
 
     print(". Removing all nodes except ASNs ...")
     for id in graph.get_nodes():
