@@ -51,14 +51,60 @@ def extract_AS_graph(igraph):
 
 def extract_core_graph(igraph):
 
-    print("Extracing core graph ...")
+    print("\nExtracing core graph ...")
     ograph = sn.Graph()
 
     print(". Referencing all bidirectional edges ...")
-    edges = [ e[1] for e in igraph.get_edges().items() if e[1]["type"] == "AS<->AS" ]
-    print("  . " + str(len(edges)) + " found.")
+    b_edges = [ e[1] for e in igraph.get_edges().items() if e[1]["type"] == "AS<->AS" ]
+    print("  . " + str(len(b_edges)) + " found.")
 
-    print(edges)
+    print(". Adding nodes in bidirectional core ...")
+    nodes = igraph.get_nodes()
+    b_nodes = dict()
+    for e in b_edges:
+        src = e["src"]
+        dst = e["dst"]
+        if src not in b_nodes:
+            b_nodes[src] = ograph.add_node(nodes[src])
+        if dst not in b_nodes:
+            b_nodes[dst] = ograph.add_node(nodes[dst])
+        eid = ograph.add_edge(b_nodes[src], b_nodes[dst])
+        ograph.set_edge_attribute(eid, "type", "AS<->AS")
+    return ograph
+
+def extract_ss_graph(igraph):
+
+    print("\nExtracting sibling leaves graph ...")
+    ograph = sn.Graph()
+
+    print(". Building node degree table ...")
+    degree_table = dict()
+    edges = igraph.get_edges()
+    for e in edges.values():
+        src = e["src"]
+        dst = e["dst"]
+        if src not in degree_table:
+            degree_table[src] = { "in" : 0, "out" : 0 }
+        if dst not in degree_table:
+            degree_table[dst] = { "in" : 0, "out" : 0 }
+        degree_table[src]["out"] += 1
+        degree_table[dst]["in"] += 1
+    
+    print(". Finding source edges ...")
+    nodes = igraph.get_nodes()
+    s_edges = [ e for e in edges.values() if degree_table[e["src"]]["in"] == 0 ]
+    print("  . " + str(len(s_edges)) + " leaf edges found.")
+
+    print(". Building graph with sources and their parents ...")
+    ss_nodes = dict()
+    for se in s_edges:
+        if se["src"] not in ss_nodes:
+            ss_nodes[se["src"]] = ograph.add_node(nodes[se["src"]])
+        if se["dst"] not in ss_nodes:
+            ss_nodes[se["dst"]] = ograph.add_node(nodes[se["dst"]])
+        e = ograph.add_edge(ss_nodes[se["src"]], ss_nodes[se["dst"]])
+        ograph.set_edge_attribute(e, "type", "AS->AS")
+
     return ograph
 
 if __name__ == "__main__":
@@ -77,23 +123,47 @@ if __name__ == "__main__":
         print("Graph file doesn't exist! Exiting.")
         sys.exit()
 
-    print("\nLoading graph in " + igraph_filename + " ...") 
-    igraph = sn.Graph()
-    igraph.load_json(igraph_filename)
+    igraph = None
+
+    def load_internet_graph():
+        if igraph is None:
+            print("\nLoading internet graph in " + igraph_filename + " ...") 
+            igraph = sn.Graph()
+            igraph.load_json(igraph_filename)
+            return igraph
     
     as_graph_filename = igraph_filename[:-5] + ".as.json"
-    as_graph = extract_AS_graph(igraph)
-    print(". Saving result in " + as_graph_filename + " ...")
-    as_graph.save_json(as_graph_filename)
-    print(str(len(as_graph.get_nodes())) + " nodes, " + str(len(as_graph.get_edges())) + " edges.")
-    igraph = as_graph
-
-    '''
-    core_graph_filename = igraph_filename[:-5] + ".core.json"
-    core_graph = extract_core_graph(as_graph)
-    print(". Saving result in " + core_graph_filename + " ...")    
-    core_graph.save_json(core_graph_filename)
-    print(str(len(core_graph.get_nodes())) + " nodes, " + str(len(core_graph.get_edges())) + " edges.")
-    igraph = core_graph
-    '''
+    if os.path.isfile(as_graph_filename):
+        print("\nAS graph already extracted, loading from file ...")
+        as_graph = sn.Graph()
+        as_graph.load_json(as_graph_filename)
+    else:
+        load_internet_graph(igraph_filename)
+        as_graph = extract_AS_graph(igraph)
+        print(". Saving result in " + as_graph_filename + " ...")
+        as_graph.save_json(as_graph_filename)
+        print(str(len(as_graph.get_nodes())) + " nodes, " + str(len(as_graph.get_edges())) + " edges.")
+ 
+    core_graph_filename = as_graph_filename[:-5] + ".core.json"
+    if os.path.isfile(core_graph_filename):
+        print("\nCore graph already extracted, loading from file ...")
+        core_graph = sn.Graph()
+        core_graph.load_json(core_graph_filename)
+    else:
+        core_graph = extract_core_graph(as_graph)
+        print(". Saving result in " + core_graph_filename + " ...")    
+        core_graph.save_json(core_graph_filename)
+        print(str(len(core_graph.get_nodes())) + " nodes, " + str(len(core_graph.get_edges())) + " edges.")
+ 
+    ss_graph_filename = as_graph_filename[:-5] + ".ss.json"
+    if os.path.isfile(ss_graph_filename):
+        print("\nSibling sources graph already extracted, loading from file ...")
+        ss_graph = sn.Graph()
+        ss_graph.load_json(ss_graph_filename)
+    else:
+        ss_graph = extract_ss_graph(as_graph)
+        print(". Saving result in " + ss_graph_filename + " ...")
+        ss_graph.save_json(ss_graph_filename)
+        print(str(len(ss_graph.get_nodes())) + " nodes, " + str(len(ss_graph.get_edges())) + " edges.")
+       
 
