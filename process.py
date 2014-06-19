@@ -51,7 +51,7 @@ def extract_AS_graph(igraph):
 
 def extract_core_graph(igraph):
 
-    print("\nExtracing core graph ...")
+    print("\nExtracting core graph ...")
     ograph = sn.Graph()
 
     print(". Referencing all bidirectional edges ...")
@@ -71,6 +71,62 @@ def extract_core_graph(igraph):
         eid = ograph.add_edge(b_nodes[src], b_nodes[dst])
         ograph.set_edge_attribute(eid, "type", "AS<->AS")
     return ograph
+
+def extract_cc_map(igraph):
+    cc_map = dict()
+    nodes = igraph.get_nodes()
+    for n in nodes.values():
+        if "cc" in n:
+            cc = n["cc"]
+            if len(cc) == 0:
+                cc = None
+        else:
+            cc = None
+        if cc not in cc_map:
+            cc_map[cc] = 0
+        cc_map[cc] += 1
+    return cc_map
+
+def extract_cc_graph(igraph, cc):
+    ograph = sn.Graph()
+    
+    nodes = igraph.get_nodes()
+    edges = igraph.get_edges()
+
+    cc_nodes = dict()
+    for e in edges.values():
+        src = e["src"]
+        dst = e["dst"]
+        if ("cc" in nodes[src] and nodes[src]["cc"] == cc) or ("cc" in nodes[dst] and nodes[dst]["cc"] == cc):
+            if src not in cc_nodes:
+                cc_nodes[src] = ograph.add_node(nodes[src])
+            if dst not in cc_nodes:
+                cc_nodes[dst] = ograph.add_node(nodes[dst])
+            e1 = ograph.add_edge(cc_nodes[src], cc_nodes[dst])
+            # NOTE : Copy all attributes in original edge.
+            for a in [ att for att in e.keys() if att != "id" and att != "src" and att != "dst" ]:
+                ograph.set_edge_attribute(e1, a, e[a])
+
+    return ograph
+        
+def extract_cc_graphs(igraph, cc_graph_dir):
+    print("\nExtracting country code graphs ...")
+    print(". Building country code map ...")
+    cc_map = extract_cc_map(igraph)
+
+    print(". Building country code graphs ...")
+    for cc in sorted(cc_map.keys()):
+        if cc is None or len(cc) == 0:
+            print("  . TODO : None/Empty CC")
+            continue
+        filename = cc_graph_dir + "/" + cc + ".json"
+        if os.path.isfile(filename):
+            print("  . " + cc + " is already built. Skipping.")
+        else:
+            cc_graph = extract_cc_graph(igraph, cc)
+            print("  . " + cc + " : " + str(len(cc_graph.get_nodes())) + " nodes, " + str(len(cc_graph.get_edges())) + " edges.")
+            cc_graph.save_json(filename)
+
 
 def extract_ss_graph(igraph):
 
@@ -103,9 +159,22 @@ def extract_ss_graph(igraph):
         if se["dst"] not in ss_nodes:
             ss_nodes[se["dst"]] = ograph.add_node(nodes[se["dst"]])
         e = ograph.add_edge(ss_nodes[se["src"]], ss_nodes[se["dst"]])
+        # NOTE : Src is a source node, it can't have an AS<->AS edge.
         ograph.set_edge_attribute(e, "type", "AS->AS")
 
     return ograph
+
+def load_internet_graph(ig_filename, ig):
+    if ig is not None:
+        return ig
+    if not os.path.isfile(ig_filename):
+        print("Internet graph file doesn't exist! Exiting.")
+        sys.exit()
+
+    print("\nLoading internet graph in " + ig_filename + " ...") 
+    ig = sn.Graph()
+    ig.load_json(ig_filename)
+    return ig
 
 if __name__ == "__main__":
 
@@ -118,33 +187,26 @@ if __name__ == "__main__":
         sys.exit()
 
     igraph_filename = sys.argv[1]
-
-    if not os.path.isfile(igraph_filename):
-        print("Graph file doesn't exist! Exiting.")
-        sys.exit()
-
     igraph = None
-
-    def load_internet_graph():
-        if igraph is None:
-            print("\nLoading internet graph in " + igraph_filename + " ...") 
-            igraph = sn.Graph()
-            igraph.load_json(igraph_filename)
-            return igraph
     
-    as_graph_filename = igraph_filename[:-5] + ".as.json"
+    subdir = igraph_filename[:-5]
+    if not os.path.isdir(subdir):
+        print("\nCreating subfolder : " + subdir + " ...")
+        os.mkdir(subdir)
+
+    as_graph_filename = subdir + "/as.json"
     if os.path.isfile(as_graph_filename):
         print("\nAS graph already extracted, loading from file ...")
         as_graph = sn.Graph()
         as_graph.load_json(as_graph_filename)
     else:
-        load_internet_graph(igraph_filename)
+        igraph = load_internet_graph(igraph_filename, igraph)
         as_graph = extract_AS_graph(igraph)
         print(". Saving result in " + as_graph_filename + " ...")
         as_graph.save_json(as_graph_filename)
         print(str(len(as_graph.get_nodes())) + " nodes, " + str(len(as_graph.get_edges())) + " edges.")
  
-    core_graph_filename = as_graph_filename[:-5] + ".core.json"
+    core_graph_filename = subdir + "/core.json"
     if os.path.isfile(core_graph_filename):
         print("\nCore graph already extracted, loading from file ...")
         core_graph = sn.Graph()
@@ -155,7 +217,13 @@ if __name__ == "__main__":
         core_graph.save_json(core_graph_filename)
         print(str(len(core_graph.get_nodes())) + " nodes, " + str(len(core_graph.get_edges())) + " edges.")
  
-    ss_graph_filename = as_graph_filename[:-5] + ".ss.json"
+    as_cc_graph_dir = subdir + "/cc"
+    if not os.path.isdir(as_cc_graph_dir):
+        os.mkdir(as_cc_graph_dir)
+    extract_cc_graphs(as_graph, as_cc_graph_dir)
+    
+    '''
+    ss_graph_filename = subdir + "/ss.json"
     if os.path.isfile(ss_graph_filename):
         print("\nSibling sources graph already extracted, loading from file ...")
         ss_graph = sn.Graph()
@@ -165,5 +233,5 @@ if __name__ == "__main__":
         print(". Saving result in " + ss_graph_filename + " ...")
         ss_graph.save_json(ss_graph_filename)
         print(str(len(ss_graph.get_nodes())) + " nodes, " + str(len(ss_graph.get_edges())) + " edges.")
-       
+    '''   
 
