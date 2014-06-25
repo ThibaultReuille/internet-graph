@@ -3,14 +3,12 @@
 import sys
 import os
 
-SEMANTIC_NET_PATH = "../semantic-net"
-sys.path.insert(0, SEMANTIC_NET_PATH)
-import SemanticNet as sn
+import semanticnet as sn
 
 def extract_AS_graph(igraph):
 
     print("\nExtracting AS graph ...")
-    ograph = sn.Graph()
+    ograph = sn.DiGraph()
 
     print(". Adding AS nodes only ...")
 
@@ -27,6 +25,7 @@ def extract_AS_graph(igraph):
         if edges[eid]["type"] == "AS->AS":
             ograph.add_edge(node_table[edges[eid]["src"]], node_table[edges[eid]["dst"]])
 
+    '''
     print(". Pruning edges ...")
 
     edge_table = dict()
@@ -47,12 +46,17 @@ def extract_AS_graph(igraph):
             edge_table[key_ab] = id
         
     print("  . " + str(bidirectional) + " bidirectional edge(s) found.")
+    '''
+
     return ograph
 
+'''
 def extract_core_graph(igraph):
 
+    # TODO : Probably rewrite this to detect bidirectional nodes and not create "bidirectional edges"
+    
     print("\nExtracting core graph ...")
-    ograph = sn.Graph()
+    ograph = sn.DiGraph()
 
     print(". Referencing all bidirectional edges ...")
     b_edges = [ e[1] for e in igraph.get_edges().items() if e[1]["type"] == "AS<->AS" ]
@@ -71,6 +75,7 @@ def extract_core_graph(igraph):
         eid = ograph.add_edge(b_nodes[src], b_nodes[dst])
         ograph.set_edge_attribute(eid, "type", "AS<->AS")
     return ograph
+'''
 
 def extract_cc_map(igraph):
     cc_map = dict()
@@ -88,7 +93,7 @@ def extract_cc_map(igraph):
     return cc_map
 
 def extract_cc_graph(igraph, cc):
-    ograph = sn.Graph()
+    ograph = sn.DiGraph()
     
     nodes = igraph.get_nodes()
     edges = igraph.get_edges()
@@ -131,7 +136,7 @@ def extract_cc_graphs(igraph, cc_graph_dir):
 def extract_ss_graph(igraph):
 
     print("\nExtracting sibling leaves graph ...")
-    ograph = sn.Graph()
+    ograph = sn.DiGraph()
 
     print(". Building node degree table ...")
     degree_table = dict()
@@ -172,7 +177,7 @@ def load_internet_graph(ig_filename, ig):
         sys.exit()
 
     print("\nLoading internet graph in " + ig_filename + " ...") 
-    ig = sn.Graph()
+    ig = sn.DiGraph()
     ig.load_json(ig_filename)
     return ig
 
@@ -197,7 +202,7 @@ if __name__ == "__main__":
     as_graph_filename = subdir + "/as.json"
     if os.path.isfile(as_graph_filename):
         print("\nAS graph already extracted, loading from file ...")
-        as_graph = sn.Graph()
+        as_graph = sn.DiGraph()
         as_graph.load_json(as_graph_filename)
     else:
         igraph = load_internet_graph(igraph_filename, igraph)
@@ -206,17 +211,19 @@ if __name__ == "__main__":
         as_graph.save_json(as_graph_filename)
         print(str(len(as_graph.get_nodes())) + " nodes, " + str(len(as_graph.get_edges())) + " edges.")
  
+    '''
     core_graph_filename = subdir + "/core.json"
     if os.path.isfile(core_graph_filename):
         print("\nCore graph already extracted, loading from file ...")
-        core_graph = sn.Graph()
+        core_graph = sn.DiGraph()
         core_graph.load_json(core_graph_filename)
     else:
         core_graph = extract_core_graph(as_graph)
         print(". Saving result in " + core_graph_filename + " ...")    
         core_graph.save_json(core_graph_filename)
         print(str(len(core_graph.get_nodes())) + " nodes, " + str(len(core_graph.get_edges())) + " edges.")
- 
+    '''
+
     as_cc_graph_dir = subdir + "/cc"
     if not os.path.isdir(as_cc_graph_dir):
         os.mkdir(as_cc_graph_dir)
@@ -226,7 +233,7 @@ if __name__ == "__main__":
     ss_graph_filename = subdir + "/ss.json"
     if os.path.isfile(ss_graph_filename):
         print("\nSibling sources graph already extracted, loading from file ...")
-        ss_graph = sn.Graph()
+        ss_graph = sn.DiGraph()
         ss_graph.load_json(ss_graph_filename)
     else:
         ss_graph = extract_ss_graph(as_graph)

@@ -8,9 +8,7 @@ import datetime as datetime
 from subprocess import call
 import pprint as pp
 
-SEMANTIC_NET_PATH = "../semantic-net"
-sys.path.insert(0, SEMANTIC_NET_PATH)
-import SemanticNet as sn
+import semanticnet as sn
 
 bgpdump = "./ripencc-bgpdump/bgpdump"
 baseurl = "http://archive.routeviews.org/bgpdata/"
@@ -188,7 +186,7 @@ if __name__ == "__main__":
     if os.path.isfile(graph_filename):
         print(". Graph is already built, skipping.")
     else:
-        graph = sn.Graph()
+        graph = sn.DiGraph()
         with open(bgpdata_dir + names[3], "rU") as ribfile:
             
             line_count = 0
