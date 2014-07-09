@@ -75,7 +75,7 @@ def extract_SPNs_from_AS_list(as_graph, asn_list, pn_check=True):
 
         # NOTE : Add AS to sub graph (If necessary)
         if asn not in onode_map:
-            onode_map[asn] = ograph.add_node(as_nodes[label_map[asn]])
+            onode_map[asn] = ograph.add_node(as_nodes[nid])
             ograph.set_node_attribute(onode_map[asn], "type", "AS (Input)")
             ograph.set_node_attribute(onode_map[asn], "depth", 0)
             input_queue.append({"nid" : nid, "asn" : asn})
@@ -95,14 +95,16 @@ def extract_SPNs_from_AS_list(as_graph, asn_list, pn_check=True):
             if succ_label not in onode_map:
                 onode_map[succ_label] = ograph.add_node(as_nodes[succ_id])
                 ograph.set_node_attribute(onode_map[succ_label], "type", "AS (Parent)")
-            
+
             edge1_key = asn + "->" + succ_label
             if edge1_key not in oedge_map:
                 oedge_map[edge1_key] = ograph.add_edge(onode_map[asn], onode_map[succ_label])
                 # TODO : Conserve edge attributes, right now everything is lost.
                 ograph.set_edge_attribute(oedge_map[edge1_key], "type", "AS->AS (1)")
 
-            successor_queue.append({ "nid" : succ_id, "asn" : succ_label })
+            successor_queue.append({ "nid" : succ_id, "asn" : succ_label })     
+       
+
     print("  . " + str(len(successor_queue)) + " parents found.")
 
     p_count = 0
@@ -127,7 +129,7 @@ def extract_SPNs_from_AS_list(as_graph, asn_list, pn_check=True):
                     
             edge2_key = pred_label + "->" + asn
             if edge2_key not in oedge_map:
-                oedge_map[edge2_key] = ograph.add_edge(onode_map[pred_label], onode_map[succ_label])
+                oedge_map[edge2_key] = ograph.add_edge(onode_map[pred_label], onode_map[asn])
                 ograph.set_edge_attribute(oedge_map[edge2_key], "type", "AS->AS (2)")
 
     print("  . " + str(p_count) + " peripheral siblings found.")
