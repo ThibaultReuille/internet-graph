@@ -1,14 +1,11 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
-import sys
-import os
+import sys, os
 import os.path
-import urllib2
 import datetime as datetime
 from subprocess import call
-import pprint as pp
 
-import semanticnet as sn
+import networkx as nx
 
 bgpdump = "./ripencc-bgpdump/bgpdump"
 baseurl = "http://archive.routeviews.org/bgpdata/"
@@ -17,9 +14,6 @@ db_dir = "./db/"
 bgpdata_dir = db_dir + "bgpdata/"
 graph_dir = db_dir + "graphs/"
 rir_dir = db_dir + "rir/"
-
-_nodes = dict()
-_edges = dict()
 
 def check_configuration():
     try:
@@ -55,27 +49,14 @@ def make_names(now):
         now -= datetime.timedelta(hours=1)
     url = now.strftime(baseurl + "%Y.%m/RIBS/")
     archive = now.strftime("rib.%Y%m%d.%H00.bz2")
-    return [url, archive, archive[:-4], archive[:-4] + ".txt"]
+    return [ url, archive, archive[:-4], archive[:-4] + ".txt" ]
 
 def curl_dl_file(url, filename):
     call(["curl", "--progress-bar", url, "-o", filename])
 
-def add_or_get_node(graph, label):
-    global _nodes
-    if label not in _nodes:
-        _nodes[label] = graph.add_node({ "label" : label })
-    return _nodes[label]
-
-def add_or_get_edge(graph, src, dst):
-    global _edges
-    key = src.hex + " -> " + dst.hex
-    if key not in _edges:
-        _edges[key] = graph.add_edge(src, dst)
-    return _edges[key]
-
-def enrich_with_rir(graph, labels, filename):
+def enrich_with_rir(graph, filename):
     inactive = 0
-    with open(filename, "rU") as rir:
+    with open(filename, "r") as rir:
         line_count = 0
         for line in rir:
             if line.startswith("#"):
@@ -87,7 +68,7 @@ def enrich_with_rir(graph, labels, filename):
 
             rir = split[0]
             cc = split[1].upper()
-            registration=split[5]
+            registration = split[5]
             if cc == "*":
                 continue
 
@@ -98,25 +79,25 @@ def enrich_with_rir(graph, labels, filename):
             #print(split)
             asn = split[3]
 
-            if asn not in labels:
+            if asn not in graph.nodes:
                 inactive += 1
                 continue
                 
-            attributes = graph.get_node_attributes(labels[asn])
+            attributes = graph.nodes[asn]
             if "rir" in attributes:
                 print ("ASN " + asn + " has multiple RIRs.")
             else:
-                graph.set_node_attribute(labels[asn], "rir", rir)
+                graph.nodes[asn]['rir'] = rir
 
             if "cc" in attributes:
                 print ("ASN " + asn + " has multiple CCs.")
             else:
-                graph.set_node_attribute(labels[asn], "cc", cc)
+                graph.nodes[asn]['cc'] = cc
 
             if "registration" in attributes:
                 print ("ASN " + asn + " has multiple registration dates.")
             else:
-                graph.set_node_attribute(labels[asn], "registration", registration)
+                graph.nodes[asn]["registration"] = registration
 
         print("  . " + str(inactive) + " inactive ASNs.")
 
@@ -186,8 +167,8 @@ if __name__ == "__main__":
     if os.path.isfile(graph_filename):
         print(". Graph is already built, skipping.")
     else:
-        graph = sn.DiGraph()
-        with open(bgpdata_dir + names[3], "rU") as ribfile:
+        graph = nx.DiGraph()
+        with open(bgpdata_dir + names[3], "r") as ribfile:
             
             line_count = 0
             for line in ribfile:
@@ -201,12 +182,9 @@ if __name__ == "__main__":
                 origin = as_path[-1]
                 prefix = split[5]
 
-                origin_id = add_or_get_node(graph, origin)
-                graph.set_node_attribute(origin_id, "type", "AS")
-                prefix_id = add_or_get_node(graph, prefix)
-                graph.set_node_attribute(prefix_id, "type", "Prefix")
-                o_p_id = add_or_get_edge(graph, origin_id, prefix_id)
-                graph.set_edge_attribute(o_p_id, "type", "AS->Prefix")
+                graph.add_node(origin, type="AS")
+                graph.add_node(prefix, type="Prefix")
+                graph.add_edge(origin, prefix, typ="AS->Prefix")
 
                 # Find source and destination AS
                 if len(as_path) < 2:
@@ -219,44 +197,29 @@ if __name__ == "__main__":
                     continue
                 dst = as_path[i]
 
-                src_id = origin_id
-                dst_id = add_or_get_node(graph, dst)
-                graph.set_node_attribute(dst_id, "type", "AS")
-
-                as_as_id = add_or_get_edge(graph, src_id, dst_id)
-                graph.set_edge_attribute(as_as_id, "type", "AS->AS")
+                src = origin
+                graph.add_node(dst, type="AS")
+                graph.add_edge(src, dst, type="AS->AS")
 
                 line_count += 1
                 if line_count % 100 == 0:
                     status = "Line : " + str(line_count)
                     sys.stdout.write(status + chr(8) * (len(status) + 1))
 
-            
-            print("\nBuilding graph node table by label ...")
-            labels = dict()
-            nodes = graph.get_nodes()
-            for nid in nodes.keys():
-                if nodes[nid]["label"] in labels:
-                    print("Error : " + nodes[nid]["label"] + " is defined multiple times!")
-                else:
-                    labels[nodes[nid]["label"]] = nid
-
             print("\nEnriching AS nodes with RIR information ...")
             ts = now.strftime("-%Y%m%d")
             print(". Parsing ARIN file")
-            enrich_with_rir(graph, labels, rir_dir + "arin" + ts)
+            enrich_with_rir(graph, rir_dir + "arin" + ts)
             print(". Parsing RIPENCC file")
-            enrich_with_rir(graph, labels, rir_dir + "ripencc" + ts)
+            enrich_with_rir(graph, rir_dir + "ripencc" + ts)
             print(". Parsing AFRINIC file")
-            enrich_with_rir(graph, labels, rir_dir + "afrinic" + ts)
+            enrich_with_rir(graph, rir_dir + "afrinic" + ts)
             print(". Parsing APNIC file")
-            enrich_with_rir(graph, labels, rir_dir + "apnic" + ts)
+            enrich_with_rir(graph, rir_dir + "apnic" + ts)
             print(". Parsing LACNIC file")
-            enrich_with_rir(graph, labels, rir_dir + "lacnic" + ts)
+            enrich_with_rir(graph, rir_dir + "lacnic" + ts)
 
-            graph_filename = graph_filename[:-5] + ".json"
+            graph_filename = graph_filename[:-5] + ".gml"
             print("\nSaving graph in " + graph_filename + " ...")
-            graph.save_json(graph_filename)
-            print(str(len(graph.get_nodes())) + " nodes, " + str(len(graph.get_edges())) + " edges.")
-           
-
+            nx.write_gml(graph, graph_filename)
+            print("{} nodes, {} edges.".format(len(graph.nodes), len(graph.edges)))

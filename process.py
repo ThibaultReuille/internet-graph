@@ -1,29 +1,28 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import sys
 import os
 
-import semanticnet as sn
+import networkx as nx
 
 def extract_AS_graph(igraph):
 
     print("\nExtracting AS graph ...")
-    ograph = sn.DiGraph()
+    ograph = nx.Graph() # NOTE: This will unify edges from the DiGraph
 
     print(". Adding AS nodes only ...")
 
-    nodes = igraph.get_nodes()
     node_table = dict()
-    for nid in nodes.keys():
-        if nodes[nid]["type"] == "AS":
-            node_table[nid] = ograph.add_node(nodes[nid])
+    for nid in igraph.nodes:
+        if igraph.nodes[nid]["type"] == "AS":
+            ograph.add_node(nid, **igraph.nodes[nid])
    
     print(". Adding AS->AS edges only ...")
 
-    edges = igraph.get_edges()
-    for eid in edges.keys():
-        if edges[eid]["type"] == "AS->AS":
-            ograph.add_edge(node_table[edges[eid]["src"]], node_table[edges[eid]["dst"]])
+    for edge in igraph.edges:
+        edge_data = igraph.edges[edge[0], edge[1]]
+        if edge_data.get("type") == "AS->AS":
+            ograph.add_edge(edge[0], edge[1], **edge_data)
 
     '''
     print(". Pruning edges ...")
@@ -50,67 +49,28 @@ def extract_AS_graph(igraph):
 
     return ograph
 
-'''
-def extract_core_graph(igraph):
-
-    # TODO : Probably rewrite this to detect bidirectional nodes and not create "bidirectional edges"
-    
-    print("\nExtracting core graph ...")
-    ograph = sn.DiGraph()
-
-    print(". Referencing all bidirectional edges ...")
-    b_edges = [ e[1] for e in igraph.get_edges().items() if e[1]["type"] == "AS<->AS" ]
-    print("  . " + str(len(b_edges)) + " found.")
-
-    print(". Adding nodes in bidirectional core ...")
-    nodes = igraph.get_nodes()
-    b_nodes = dict()
-    for e in b_edges:
-        src = e["src"]
-        dst = e["dst"]
-        if src not in b_nodes:
-            b_nodes[src] = ograph.add_node(nodes[src])
-        if dst not in b_nodes:
-            b_nodes[dst] = ograph.add_node(nodes[dst])
-        eid = ograph.add_edge(b_nodes[src], b_nodes[dst])
-        ograph.set_edge_attribute(eid, "type", "AS<->AS")
-    return ograph
-'''
-
 def extract_cc_map(igraph):
     cc_map = dict()
-    nodes = igraph.get_nodes()
-    for n in nodes.values():
-        if "cc" in n:
-            cc = n["cc"]
-            if len(cc) == 0:
-                cc = None
-        else:
-            cc = None
+    for node in igraph.nodes:
+        cc = igraph.nodes[node].get("cc")
+        if cc is None or len(cc) == 0:
+             cc = ""
         if cc not in cc_map:
             cc_map[cc] = 0
         cc_map[cc] += 1
     return cc_map
 
 def extract_cc_graph(igraph, cc):
-    ograph = sn.DiGraph()
+    ograph = nx.DiGraph()
     
-    nodes = igraph.get_nodes()
-    edges = igraph.get_edges()
-
     cc_nodes = dict()
-    for e in edges.values():
-        src = e["src"]
-        dst = e["dst"]
-        if ("cc" in nodes[src] and nodes[src]["cc"] == cc) or ("cc" in nodes[dst] and nodes[dst]["cc"] == cc):
-            if src not in cc_nodes:
-                cc_nodes[src] = ograph.add_node(nodes[src])
-            if dst not in cc_nodes:
-                cc_nodes[dst] = ograph.add_node(nodes[dst])
-            e1 = ograph.add_edge(cc_nodes[src], cc_nodes[dst])
-            # NOTE : Copy all attributes in original edge.
-            for a in [ att for att in e.keys() if att != "id" and att != "src" and att != "dst" ]:
-                ograph.set_edge_attribute(e1, a, e[a])
+    for edge in igraph.edges:
+        src = edge[0]
+        dst = edge[1]
+        if igraph.nodes[src].get("cc") == cc or igraph.nodes.get("cc") == cc:
+            ograph.add_node(src, **igraph.nodes[src])
+            ograph.add_node(dst, **igraph.nodes[dst])
+            ograph.add_edge(src, dst, **igraph.edges[src, dst])
 
     return ograph
         
@@ -121,124 +81,59 @@ def extract_cc_graphs(igraph, cc_graph_dir):
 
     print(". Building country code graphs ...")
     for cc in sorted(cc_map.keys()):
-        if cc is None or len(cc) == 0:
-            print("  . TODO : None/Empty CC")
-            continue
-        filename = cc_graph_dir + "/" + cc + ".json"
+        # if cc is None or len(cc) == 0:
+        #     print("  . TODO : None/Empty CC")
+        #     continue
+        filename = "{}/{}.gml".format(cc_graph_dir, "??" if ((cc is None) or (len(cc) == 0)) else cc)
         if os.path.isfile(filename):
             print("  . " + cc + " is already built. Skipping.")
         else:
             cc_graph = extract_cc_graph(igraph, cc)
-            print("  . " + cc + " : " + str(len(cc_graph.get_nodes())) + " nodes, " + str(len(cc_graph.get_edges())) + " edges.")
-            cc_graph.save_json(filename)
+            print("  . {} - {} : {} nodes, {} edges".format(cc, filename, len(cc_graph.nodes), len(cc_graph.edges)))
+            nx.write_gml(cc_graph, filename)
 
-
-def extract_ss_graph(igraph):
-
-    print("\nExtracting sibling leaves graph ...")
-    ograph = sn.DiGraph()
-
-    print(". Building node degree table ...")
-    degree_table = dict()
-    edges = igraph.get_edges()
-    for e in edges.values():
-        src = e["src"]
-        dst = e["dst"]
-        if src not in degree_table:
-            degree_table[src] = { "in" : 0, "out" : 0 }
-        if dst not in degree_table:
-            degree_table[dst] = { "in" : 0, "out" : 0 }
-        degree_table[src]["out"] += 1
-        degree_table[dst]["in"] += 1
-    
-    print(". Finding source edges ...")
-    nodes = igraph.get_nodes()
-    s_edges = [ e for e in edges.values() if degree_table[e["src"]]["in"] == 0 ]
-    print("  . " + str(len(s_edges)) + " leaf edges found.")
-
-    print(". Building graph with sources and their parents ...")
-    ss_nodes = dict()
-    for se in s_edges:
-        if se["src"] not in ss_nodes:
-            ss_nodes[se["src"]] = ograph.add_node(nodes[se["src"]])
-        if se["dst"] not in ss_nodes:
-            ss_nodes[se["dst"]] = ograph.add_node(nodes[se["dst"]])
-        e = ograph.add_edge(ss_nodes[se["src"]], ss_nodes[se["dst"]])
-        # NOTE : Src is a source node, it can't have an AS<->AS edge.
-        ograph.set_edge_attribute(e, "type", "AS->AS")
-
-    return ograph
-
-def load_internet_graph(ig_filename, ig):
+def load_internet_graph(filename, ig):
     if ig is not None:
         return ig
-    if not os.path.isfile(ig_filename):
+    if not os.path.isfile(filename):
         print("Internet graph file doesn't exist! Exiting.")
         sys.exit()
 
-    print("\nLoading internet graph in " + ig_filename + " ...") 
-    ig = sn.DiGraph()
-    ig.load_json(ig_filename)
-    return ig
+    print("Loading internet graph in " + filename + " ...") 
+    return nx.read_gml(filename)
 
 if __name__ == "__main__":
 
     if len(sys.argv) < 2:
-        print("Usage: " + sys.argv[0] + " <graph.json>")
+        print("Usage: " + sys.argv[0] + " <graph.gml>")
         sys.exit()
 
-    if not sys.argv[1].endswith(".json"):
+    if not sys.argv[1].endswith(".gml"):
         print("Error: Input file must have .json extension!")
         sys.exit()
 
     igraph_filename = sys.argv[1]
     igraph = None
     
-    subdir = igraph_filename[:-5]
+    subdir = ".".join(igraph_filename.split('.')[:-1])
     if not os.path.isdir(subdir):
-        print("\nCreating subfolder : " + subdir + " ...")
+        print("Creating subfolder : " + subdir + " ...")
         os.mkdir(subdir)
 
-    as_graph_filename = subdir + "/as.json"
+    as_graph_filename = subdir + "/as.gml"
     if os.path.isfile(as_graph_filename):
-        print("\nAS graph already extracted, loading from file ...")
-        as_graph = sn.DiGraph()
-        as_graph.load_json(as_graph_filename)
+        print("AS graph already extracted, loading from file ...")
+        as_graph = nx.read_gml(as_graph_filename)
     else:
         igraph = load_internet_graph(igraph_filename, igraph)
         as_graph = extract_AS_graph(igraph)
-        print(". Saving result in " + as_graph_filename + " ...")
-        as_graph.save_json(as_graph_filename)
-        print(str(len(as_graph.get_nodes())) + " nodes, " + str(len(as_graph.get_edges())) + " edges.")
- 
-    '''
-    core_graph_filename = subdir + "/core.json"
-    if os.path.isfile(core_graph_filename):
-        print("\nCore graph already extracted, loading from file ...")
-        core_graph = sn.DiGraph()
-        core_graph.load_json(core_graph_filename)
-    else:
-        core_graph = extract_core_graph(as_graph)
-        print(". Saving result in " + core_graph_filename + " ...")    
-        core_graph.save_json(core_graph_filename)
-        print(str(len(core_graph.get_nodes())) + " nodes, " + str(len(core_graph.get_edges())) + " edges.")
-    '''
+        print(". Saving result in {} ...".format(as_graph_filename))
+        nx.write_gml(as_graph, as_graph_filename)
+        print("{} nodes, {} edges.".format(len(as_graph.nodes), len(as_graph.edges)))
 
     as_cc_graph_dir = subdir + "/cc"
     if not os.path.isdir(as_cc_graph_dir):
         os.mkdir(as_cc_graph_dir)
     extract_cc_graphs(as_graph, as_cc_graph_dir)
-    
-    '''
-    ss_graph_filename = subdir + "/ss.json"
-    if os.path.isfile(ss_graph_filename):
-        print("\nSibling sources graph already extracted, loading from file ...")
-        ss_graph = sn.DiGraph()
-        ss_graph.load_json(ss_graph_filename)
-    else:
-        ss_graph = extract_ss_graph(as_graph)
-        print(". Saving result in " + ss_graph_filename + " ...")
-        ss_graph.save_json(ss_graph_filename)
-        print(str(len(ss_graph.get_nodes())) + " nodes, " + str(len(ss_graph.get_edges())) + " edges.")
-    '''   
+
 
